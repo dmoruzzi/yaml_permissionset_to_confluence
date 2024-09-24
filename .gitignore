@@ -1,0 +1,5 @@
+venv/
+salesforce/
+.vscode/
+dist/*.py
+dist/*.yml

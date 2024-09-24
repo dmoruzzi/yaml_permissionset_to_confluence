@@ -1,0 +1,163 @@
+name: {{ workflow_name | default("CI Pipeline") }}
+
+on:
+  workflow_dispatch:
+  {%- if scheduled %}
+  schedule:
+    {%- for schedule in scheduled %}
+    - cron: '{{ schedule.cron }}'  # {{ schedule.comment }}
+    {%- endfor %}
+{% endif %}
+
+jobs:
+  app:
+    runs-on: {{ runner_os | default('ubuntu-latest') }}
+
+    steps:
+      {%- if python_version %}
+      - name: Set up Python {{ python_version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: '{{ python_version }}'
+          cache: 'pip'
+      {%- else %}
+      - name: Set up Python 3
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+          cache: 'pip'
+      {%- endif %}
+
+      {%- if sf_install %}
+      {% raw %}
+      - name: Current Month Environment
+        run: echo "CURRENT_MONTH=$(date +%Y-%m)" >> $GITHUB_ENV
+
+      - name: Cache Salesforce CLI Archive
+        id: cache-sf-cli
+        uses: actions/cache@v4
+        with:
+          path: ~/sf-cli.tar.gz
+          key: sf-cli-${{ runner.os }}-${{ runner.arch }}-${{ env.CURRENT_MONTH }}-${{ github.sha }}
+          restore-keys: |
+            sf-cli-${{ runner.os }}-${{ runner.arch }}-${{ env.CURRENT_MONTH }}-
+
+      - name: Download Salesforce CLI
+        if: steps.cache-sf-cli.outputs.cache-hit != 'true'
+        run: |
+          ARCH="${{ runner.arch }}"
+          OS="${{ runner.os }}"
+          BASE_URL="https://developer.salesforce.com/media/salesforce-cli/sf/channels/stable"
+          
+          if [ "$OS" == "Linux" ]; then
+            case "$ARCH" in
+              x86_64)
+                FILE="sf-linux-x64.tar.gz"
+                ;;
+              aarch64)
+                FILE="sf-linux-arm64.tar.gz"
+                ;;
+              armv7l)
+                FILE="sf-linux-arm.tar.gz"
+                ;;
+              *)
+                echo "Unsupported architecture: $ARCH"
+                exit 1
+                ;;
+            esac
+          else
+            echo "Unsupported OS: $OS"
+            exit 1
+          fi
+
+          curl -L "$BASE_URL/$FILE" -o ~/sf-cli.tar.gz
+        shell: bash
+
+      - name: Install Salesforce CLI
+        run: |
+          mkdir -p $GITHUB_WORKSPACE/sf/bin
+          tar -xzf ~/sf-cli.tar.gz -C $GITHUB_WORKSPACE/sf/bin
+          chmod +x $GITHUB_WORKSPACE/sf/bin/sf
+          echo "$GITHUB_WORKSPACE/sf/bin" >> $GITHUB_PATH
+        shell: bash
+
+      - name: Check Salesforce CLI version
+        run: sf --version
+        shell: bash
+      {% endraw %}
+      {%- endif %}
+
+      {%- if sf_empty_project %}
+      - name: {{ sf_empty_project[0].name | default("Salesforce Project Creation") }}
+        run: |
+          {% if sf_empty_project[0].comment %}echo "{{ sf_empty_project[0].comment }}"{% endif %}
+          sf project generate --name {{ sf_empty_project[0].name | default("salesforce") }} --template {{ sf_empty_project[0].template | default('empty') }}
+        shell: bash
+      {% endif %}
+
+      {%- if python_dependencies %}
+        {%- for dependency in python_dependencies %}
+      - name: PIP Install {{ dependency.name }}
+        run: |
+          echo "Installing {{ dependency.name }}{% if dependency.comment %} - {{ dependency.comment }}{% endif %}"
+          pip install {{ dependency.name }}{{ dependency.version }}
+        shell: bash
+        {% endfor %}
+      {%- endif %}
+
+      {%- if files %}
+      {%- for file in files %}
+      - name: Write {{ file.name }} to disk
+        run: |
+          echo "Writing {{ file.name }} to disk {% if file.comment %} - {{ file.comment }}{% endif %}"
+          cat <<EOF > {{ file.path }}
+          {{ file.content }}
+          EOF
+        shell: bash
+      {%- endfor %}
+      {%- endif %}
+
+      {%- if SF_AUTH %}
+      {%- for auth in SF_AUTH %}
+      - name: SF {{ auth.alias }} Authentication
+        run: |
+          echo "Logging in to Salesforce as {{ auth.alias }}{% if auth.comment %} - {{ auth.comment }}{% endif %}"
+          echo {% raw %}"{{{% endraw %} auth.{{ auth.secret_key }} {% raw %}}}"{% endraw %} | sf org login sfdx-url --sfdx-url-stdin --set-default --alias {{ auth.alias }}
+        shell: bash
+      {% endfor %}
+      {%- endif %}
+
+      {%- if SF_METADATA_DOWNLOAD %}
+      {%- for metadata in SF_METADATA_DOWNLOAD %}
+      - name: Downloading {{ metadata.name }} from {{ metadata.org }}
+        run: |
+          cd $GITHUB_WORKSPACE/{{ sf_empty_project[0].name | default("salesforce") }}
+          echo "Downloading Metadata from {{ metadata.org }}{% if metadata.comment %} - {{ metadata.comment }}{% endif %}"
+          sf project retrieve start --metadata "{{ metadata.metadata }}" -o {{ metadata.org }} --ignore-conflicts
+          ls -laR $GITHUB_WORKSPACE/{{ sf_empty_project[0].name | default("salesforce") }}
+        shell: bash
+      {%- endfor %}
+      {%- endif %}
+
+      {%- if SF_METADATA_UPLOAD %}
+      {%- for metadata in SF_METADATA_UPLOAD %}
+      - name: Uploading {{ metadata.name }} to {{ metadata.org }}
+        run: |
+          cd $GITHUB_WORKSPACE/{{ sf_empty_project[0].name | default("salesforce") }}
+          echo "Uploading Metadata to {{ metadata.org }}{% if metadata.comment %} - {{ metadata.comment }}{% endif %}"
+          sf project retrieve start --metadata "{{ metadata.metadata }}" -o {{ metadata.org }} --ignore-conflicts
+          ls -laR $GITHUB_WORKSPACE/{{ sf_empty_project[0].name | default("salesforce") }}
+        shell: bash
+      {%- endfor %}
+      {%- endif %}
+
+      {%- if execute_python %}
+      {%- for py_script in execute_python %}
+      - name: Execute {{ py_script.name }}
+        run: |
+          cd $GITHUB_WORKSPACE
+          echo "Executing {{ py_script.name }}{% if py_script.comment %} - {{ py_script.comment }}{% endif %}"
+          python {{ py_script.path }} {{ py_script.args | default("") }}
+        shell: bash
+      {%- endfor %}
+      {%- endif %}
