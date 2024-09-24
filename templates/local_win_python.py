@@ -68,7 +68,7 @@ if __name__ == "__main__":
 
     # Convert JSON to HTML
     permissionset_html_dir = f"{sf_dir}/permset-html"
-    process_json_to_html_files(Path(permissionset_json_dir), Path(permissionset_html_dir), ".permissionset-meta.json")
+    process_json_to_html_files(Path(permissionset_json_dir), Path(permissionset_html_dir), ".permissionset-meta.json", "{{ SF_ORG }}")
 
     # Read Confluence DB
     get_webpage(page_id="{{ CONFLUENCE_MASTER_ID}}", output="html_to_ids.json")

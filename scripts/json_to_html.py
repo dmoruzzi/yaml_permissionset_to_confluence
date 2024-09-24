@@ -4,6 +4,7 @@ import json
 import logging
 from concurrent.futures import ThreadPoolExecutor
 import argparse
+import datetime
 
 def make_template():
     return """
@@ -26,7 +27,7 @@ def make_template():
 {%- if permission_set.sessionTimeout %}
 <p><strong>Session Timeout:</strong> {{ permission_set.sessionTimeout }}</p>
 {%- endif %}
-
+<p><small>YYYY-MM-DD | #ORG</small></p>
 <hr />
 
 {% if permission_set.objectPermissions %}
@@ -491,7 +492,7 @@ def make_template():
 </body>
 """
 
-def export_html_file(json_file, output_dir):
+def export_html_file(json_file, output_dir, org_name):
     with open(json_file, 'r') as f:
         permission_set = json.load(f)
     
@@ -501,6 +502,13 @@ def export_html_file(json_file, output_dir):
     env = Environment(loader=FileSystemLoader('.'))
     template = env.from_string(make_template())
     html_content = template.render(permission_set=permission_set['PermissionSet'])
+    timestamp = datetime.datetime.now().strftime('%Y-%b-%d')
+    html_content = html_content.replace('YYYY-MM-DD', timestamp)
+    html_content = html_content.replace('#ORG', org_name)
+
+    # standardize the true and false values for ease of use
+    html_content = html_content.replace("<td>false</td>", "<td>FALSE</td>")
+    html_content = html_content.replace("<td>true</td>", "<td><span style='color: #E08738; font-weight: bold'>TRUE</span></td>")
 
     html_file = os.path.join(output_dir, os.path.basename(json_file).removesuffix('.json') + '.html')
     
@@ -509,7 +517,7 @@ def export_html_file(json_file, output_dir):
 
     logging.info(f"Converted {json_file} to {html_file}")
 
-def process_json_to_html_files(input_dir, output_dir, extension):
+def process_json_to_html_files(input_dir, output_dir, extension, org_name):
     """Process files with the specified extension in the input directory and save them as HTML in the output directory."""
     logging.basicConfig(level=logging.DEBUG)
     
@@ -527,7 +535,7 @@ def process_json_to_html_files(input_dir, output_dir, extension):
 
             # Submit each file for parallel processing
             logging.debug(f"Processing {json_filename}")
-            executor.submit(export_html_file, json_filename, output_dir)
+            executor.submit(export_html_file, json_filename, output_dir, org_name)
 
     logging.info(f"Converted {len(files)} files to HTML in {output_dir}")
 
@@ -536,8 +544,9 @@ if __name__ == "__main__":
     parser.add_argument('--input_dir', '-i', required=True, help="Directory containing JSON files")
     parser.add_argument('--output_dir', '-o', required=True, help="Directory to save HTML files")
     parser.add_argument('--extension', '-e', default='.json', help="File extension to process (default: .json)")
+    parser.add_argument('-a', '--alias', default='PROD', help="Alias of the organization (default: PROD)")
 
     args = parser.parse_args()
 
     # Process the files with the specified extension and convert them to HTML
-    process_json_to_html_files(args.input_dir, args.output_dir, args.extension)
+    process_json_to_html_files(args.input_dir, args.output_dir, args.extension, args.alias)

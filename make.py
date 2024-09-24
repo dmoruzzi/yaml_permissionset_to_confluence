@@ -177,16 +177,19 @@ def main():
         if "." in d["name"]:
             d["name"] = d["name"].split(".")[0]
 
+    # SF Org
+    context["SF_ORG"] = "ACH01"
+
     # SF Auth
     context["SF_AUTH"] = [{
-        "secret_key": "AUTH_ACH01",
-        "alias": "ACH01",
+        "secret_key": f"AUTH_{context['SF_ORG']}",
+        "alias": f"{context['SF_ORG']}",
     }]
     
     # SF Download
     context["SF_METADATA_DOWNLOAD"] = [{
         "name": "Permissionsets",
-        "org": "prim",
+        "org": f'{context["SF_ORG"]}',
         "metadata": "PermissionSet:*"
     }]
 
