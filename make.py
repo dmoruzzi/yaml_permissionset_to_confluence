@@ -8,13 +8,11 @@ def main():
     workflow_template = fetch_template(dir="templates", name="workflow.yml.jinja2")
     python_template = fetch_template(dir="templates", name="local_win_python.py")
 
-    # whoami?
-    output = os.popen("whoami").read()
-    logging.debug(f"Command output: {output}")
-
+    
     # Template context
     context = dict()
-    context["workflow_name"] = 'SF PS Report'
+    context["workflow_name"] = 'Salesforce Permission Set Report'
+    context["CONFLUENCE_MASTER_ID"] = "9994318"
     context["prefix"] = ' '*10
     context["python_version"] = '3.12'  
     context["sf_install"] = True
@@ -22,6 +20,21 @@ def main():
         "comment": "Create an empty project in Salesforce",
         "name": "salesforce",
     }]
+
+    # Make directories
+    context["mkdirs"] = []
+    context["mkdirs"].append({
+        "path": "$GITHUB_WORKSPACE/permset-html",
+        "comment": "Directory to save HTML files"
+    })
+    context["mkdirs"].append({
+        "path": "$GITHUB_WORKSPACE/permset-json",
+        "comment": "Directory to save JSON files"
+    })
+
+    for d in context["mkdirs"]:
+        if "name" not in d:
+            d["name"] = os.path.basename(d["path"])
 
     # Python dependencies
     context['python_dependencies'] = []
@@ -39,6 +52,11 @@ def main():
         'version': '=0.13.0',
         'name': 'xmltodict',
         'comment': 'XML library for converting XML Permissionsets to JSON'
+    })
+    context['python_dependencies'].append({
+        "version": ">=4.12.3,<5.0.0",
+        "name": "beautifulsoup4",
+        "comment": "HTML Parser library for Confluence HTML to JSON"
     })
 
     # Cron schedule(s); empty if not needed
@@ -60,15 +78,104 @@ def main():
         "comment": "This script converts XML files to JSON which can be used for easier table creation",
         "content": read_file_content("scripts/xml_to_json.py"),
     })
+    context['files'].append({
+        "name": "JSON to HTML",
+        "path": "${{ GITHUB_WORKSPACE }}/json_to_html.py",
+        "comment": "This script converts JSON files to HTML",
+        "content": read_file_content("scripts/json_to_html.py"),
+    })
+    context['files'].append({
+        "name": "Read Confluence DB",
+        "path": "${{ GITHUB_WORKSPACE }}/read_confluence_db.py",
+        "comment": "This script reads the latest Confluence ID from the Confluence Master Sheet",
+        "content": read_file_content("scripts/read_confluence_db.py"),
+    })
+    context['files'].append({
+        "name": "Update Confluence Pages",
+        "path": "${{ GITHUB_WORKSPACE }}/update_confluence.py",
+        "comment": "This script updates Confluence pages with new HTML content",
+        "content": read_file_content("scripts/update_confluence.py"),
+    })
+    context['files'].append({
+        "name": "Compare Delta",
+        "path": "${{ GITHUB_WORKSPACE }}/compare_delta.py",
+        "comment": "This script compares HTML files to JSON data",
+        "content": read_file_content("scripts/compare_delta.py"),
+    })
 
     context["execute_python"] = []
     context["execute_python"].append({
         "name": "XML to JSON",
         "comment": "Convert XML Permissionsets to JSON for table creation",
-        "script": "./xml_to_json.py",
-        "parameters": "-i ./force-app/main/default/permissionsets -o ./permset"
+        "path": "./xml_to_json.py",
+        "args": '-i "$GITHUB_WORKSPACE/salesforce/force-app/main/default/permissionsets" -o "$GITHUB_WORKSPACE/salesforce/permset"'
+    })
+    context["execute_python"].append({
+        "name": "JSON to HTML",
+        "comment": "Convert JSON Permissionsets to HTML",
+        "path": "./json_to_html.py",
+        "args": '-i "$GITHUB_WORKSPACE/salesforce/permset" -o "$GITHUB_WORKSPACE/permset-html"'
+    })
+    context["execute_python"].append({
+        "name": "Read Confluence DB",
+        "comment": "Retrieve the latest HTML to Confluence IDs from Confluence's Master Sheet",
+        "path": "./read_confluence_db.py",
+        "args": f'-p "{context["CONFLUENCE_MASTER_ID"]}" -o "$GITHUB_WORKSPACE/html_to_ids.json"'
+    })
+    context["execute_python"].append({
+        "name": "Update Confluence Pages",
+        "comment": "Parallelly update Confluence pages with new HTML content",
+        "path": "./update_confluence.py",
+        "args": '-i "$GITHUB_WORKSPACE/html_to_ids.json" -p "$GITHUB_WORKSPACE/permset-html/"'
+    })
+    context["execute_python"].append({
+        "name": "Compare Delta",
+        "comment": "Compare HTML files to JSON data",
+        "path": "./compare_delta.py",
+        "args": '-i "$GITHUB_WORKSPACE/permset-html" -m "$GITHUB_WORKSPACE/html_to_ids.json" -o "$GITHUB_WORKSPACE/differences.json"'
     })
 
+    # Compress folders to make easier uploading for artifacts
+    context["compress_folders"] = []
+    context["compress_folders"].append({
+        "comment": "Permissionset HTML files",
+        "path": "permset-html",
+        "target": "permset-html.tgz"
+    })
+    context["compress_folders"].append({
+        "comment": "Permissionset JSON files",
+        "path": "permset-json",
+        "target": "permset-json.tgz"
+    })
+    context["compress_folders"].append({
+        "comment": "XML Permissionset files",
+        "path": "salesforce/force-app/main/default/permissionsets",
+        "target": "permissionsets.tgz"
+    })
+
+    # Upload artifacts
+    context["upload_artifacts"] = []
+    context["upload_artifacts"].append({
+        "path": "differences.json"
+    })
+    context["upload_artifacts"].append({
+        "path": "permset-html.tgz"
+    })
+    context["upload_artifacts"].append({
+        "path": "permset-json.tgz"
+    })
+    context["upload_artifacts"].append({
+        "path": "permissionsets.tgz"
+    })
+
+    for d in context["upload_artifacts"]:
+        if "/" in d["path"]:
+            d["name"] = d["path"].split("/")[-1]
+        else:
+            d["name"] = d["path"]  # Handle case where there is no slash
+
+        if "." in d["name"]:
+            d["name"] = d["name"].split(".")[0]
 
     # SF Auth
     context["SF_AUTH"] = [{
@@ -91,11 +198,20 @@ def main():
     save_dist(output=workflow_text, file="workflow.yml")
 
     python_text = python_template.render(context)
-    # prefix with scripts/xml_to_json.py until 'if __name__ == "__main__":' (exclusive)
-    with open('scripts/xml_to_json.py', 'r') as f:
+    # Inject Python scripts into local Python workflow
+    python_text = inject_py_file(python_text, 'scripts/xml_to_json.py')
+    python_text = inject_py_file(python_text, 'scripts/json_to_html.py')
+    python_text = inject_py_file(python_text, 'scripts/read_confluence_db.py')
+    python_text = inject_py_file(python_text, 'scripts/update_confluence.py')
+    python_text = inject_py_file(python_text, 'scripts/compare_delta.py')
+    save_dist(output=python_text, file="local_win_python.py")
+
+def inject_py_file(python_text: str, file: str):
+
+    with open(file, 'r') as f:
         inject_text = f.read().split('if __name__ == "__main__":')
     python_text = inject_text[0] + python_text
-    save_dist(output=python_text, file="local_win_python.py")
+    return python_text
 
 
 def fetch_template(dir: str = "templates", name: str = "workflow.yml.jinja2") -> jinja2.Template:

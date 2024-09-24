@@ -12,7 +12,6 @@ on:
 jobs:
   app:
     runs-on: {{ runner_os | default('ubuntu-latest') }}
-
     steps:
       {%- if python_version %}
       - name: Set up Python {{ python_version }}
@@ -26,6 +25,16 @@ jobs:
         with:
           python-version: '3.x'
           cache: 'pip'
+      {%- endif %}
+
+      {%- if mkdirs %}
+      {% for directory in mkdirs %}
+      - name: Create {{ directory.name }}
+        run: |
+          echo "Creating {{ directory.name }}{% if directory.comment %} - {{ directory.comment }}{% endif %}"
+          mkdir -p {{ directory.path }}
+        shell: bash
+      {% endfor %}
       {%- endif %}
 
       {%- if sf_install %}
@@ -109,16 +118,19 @@ jobs:
       {%- for file in files %}
       - name: Write {{ file.name }} to disk
         run: |
+          pwd
           echo "Writing {{ file.name }} to disk {% if file.comment %} - {{ file.comment }}{% endif %}"
           cat <<EOF > {{ file.path }}
           {{ file.content }}
           EOF
+          chmod +x {{ file.path }}
+          ls -la {{ file.path }}
         shell: bash
       {%- endfor %}
       {%- endif %}
 
       {%- if SF_AUTH %}
-      {%- for auth in SF_AUTH %}
+      {% for auth in SF_AUTH %}
       - name: SF {{ auth.alias }} Authentication
         run: |
           echo "Logging in to Salesforce as {{ auth.alias }}{% if auth.comment %} - {{ auth.comment }}{% endif %}"
@@ -140,7 +152,7 @@ jobs:
       {%- endif %}
 
       {%- if SF_METADATA_UPLOAD %}
-      {%- for metadata in SF_METADATA_UPLOAD %}
+      {% for metadata in SF_METADATA_UPLOAD %}
       - name: Uploading {{ metadata.name }} to {{ metadata.org }}
         run: |
           cd $GITHUB_WORKSPACE/{{ sf_empty_project[0].name | default("salesforce") }}
@@ -152,12 +164,41 @@ jobs:
       {%- endif %}
 
       {%- if execute_python %}
-      {%- for py_script in execute_python %}
+      {% for py_script in execute_python %}
       - name: Execute {{ py_script.name }}
         run: |
           cd $GITHUB_WORKSPACE
+          chmod +x {{ py_script.path }}{# should already be executable; but let's be 100% sure #}
           echo "Executing {{ py_script.name }}{% if py_script.comment %} - {{ py_script.comment }}{% endif %}"
           python {{ py_script.path }} {{ py_script.args | default("") }}
         shell: bash
-      {%- endfor %}
+      {% endfor %}
+      {%- endif %}
+
+      {%- if compress_folders %}
+      {% for folder in compress_folders %}
+      - name: Compress {{ folder.name }}
+        run: |
+          cd $GITHUB_WORKSPACE
+          if [ -d {{ folder.path }} ]; then
+            echo "Compressing {{ folder.name }}{% if folder.comment %} - {{ folder.comment }}{% endif %}"
+            tar -czf {{ folder.target }} {{ folder.path }}
+          else
+            echo "Folder {{ folder.name }} does not exist; skipping"
+          fi
+        shell: bash
+      {% endfor %}
+      {%- endif %}
+
+      {%- if upload_artifacts %}
+      {% for artifact in upload_artifacts %}
+      - name: Upload {{ artifact.name }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: {{ artifact.name }}
+          path: {{ artifact.path }}
+          retention-days: 1
+          if-no-files-found: ignore
+        if: always()
+      {% endfor %}
       {%- endif %}

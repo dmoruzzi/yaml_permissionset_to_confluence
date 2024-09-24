@@ -509,7 +509,7 @@ def export_html_file(json_file, output_dir):
 
     logging.info(f"Converted {json_file} to {html_file}")
 
-def process_html_table_files(input_dir, output_dir, extension):
+def process_json_to_html_files(input_dir, output_dir, extension):
     """Process files with the specified extension in the input directory and save them as HTML in the output directory."""
     logging.basicConfig(level=logging.DEBUG)
     
@@ -531,7 +531,7 @@ def process_html_table_files(input_dir, output_dir, extension):
 
     logging.info(f"Converted {len(files)} files to HTML in {output_dir}")
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Convert JSON files to HTML tables")
     parser.add_argument('--input_dir', '-i', required=True, help="Directory containing JSON files")
     parser.add_argument('--output_dir', '-o', required=True, help="Directory to save HTML files")
@@ -540,4 +540,4 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     # Process the files with the specified extension and convert them to HTML
-    process_html_table_files(args.input_dir, args.output_dir, args.extension)
+    process_json_to_html_files(args.input_dir, args.output_dir, args.extension)

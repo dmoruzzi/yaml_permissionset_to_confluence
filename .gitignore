@@ -3,3 +3,4 @@ salesforce/
 .vscode/
 dist/*.py
 dist/*.yml
+.env
